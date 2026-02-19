@@ -1,0 +1,133 @@
+#include <Arduino.h>
+
+// 1. สร้างโครงสร้างเก็บข้อมูล Pitch และ Roll (จำลอง History)
+struct PostureData {
+  float pitch;
+  float roll;
+};
+
+void setup() {
+  Serial.begin(115200);
+  
+  // สุ่ม Seed สำหรับให้คำพูด Random ไม่ซ้ำกัน
+  randomSeed(analogRead(0)); 
+
+  // ---------------------------------------------------------
+  // จำลองข้อมูล (Mock Data) ที่ได้จากเซ็นเซอร์ (เช่น MPU6050)
+  // ปกติส่วนนี้คุณต้องเก็บค่าสะสมมาใส่ใน Array ครับ
+  // ---------------------------------------------------------
+  PostureData history_data[] = {
+    {-15.0, 1.0},  // ก้มหน้า
+    {-12.0, 0.5},  // ก้มหน้า
+    {5.0, 1.0},    // ปกติ
+    {0.0, 5.0},    // ตัวเอียง
+    {2.0, 0.0}     // ปกติ
+  };
+  
+  int total_data = sizeof(history_data) / sizeof(history_data[0]);
+
+  // เรียกใช้ฟังก์ชันประมวลผล
+  analyzePosture(history_data, total_data);
+}
+
+void loop() {
+  // บน ESP32 เรามักจะประมวลผลเมื่อกดปุ่ม หรือตามรอบเวลา
+  // ตรงนี้ปล่อยว่างไว้ก่อนสำหรับตัวอย่างนี้
+}
+
+
+// ---------------------------------------------------------
+// ฟังก์ชันหลัก: วิเคราะห์และให้คำแนะนำ (AI Logic)
+// ---------------------------------------------------------
+void analyzePosture(PostureData history[], int total) {
+  if (total == 0) {
+    Serial.println("ไม่พบข้อมูลการนั่ง");
+    return;
+  }
+
+  int slouch_count = 0;    // ก้มหน้า
+  int lean_back_count = 0; // เอนหลัง
+  int lean_side_count = 0; // เอียงข้าง
+  int correct_count = 0;
+
+  // 2. วิเคราะห์ข้อมูลทีละค่า (If-Else)
+  for (int i = 0; i < total; i++) {
+    float p = history[i].pitch;
+    float r = history[i].roll;
+
+    if (p < -10) {
+      slouch_count++;
+    } else if (p > 10) {
+      lean_back_count++;
+    } else if (abs(r) > 3) {
+      lean_side_count++;
+    } else {
+      correct_count++;
+    }
+  }
+
+  // 3. ประมวลผลคะแนน
+  int score = (correct_count * 100) / total;
+
+  // 4. หาปัญหาหลัก (Main Issue)
+  String main_issue = "ไม่มีปัญหา";
+  int max_count = 0;
+
+  if (slouch_count > max_count) {
+    main_issue = "ก้มหน้า";
+    max_count = slouch_count;
+  }
+  if (lean_back_count > max_count) {
+    main_issue = "เอนหลัง";
+    max_count = lean_back_count;
+  }
+  if (lean_side_count > max_count) {
+    main_issue = "ตัวเอียง";
+    max_count = lean_side_count;
+  }
+
+  // 5. สร้างคำแนะนำ (Generation Part)
+  String advice_text = "";
+  int rand_idx = random(0, 5); // สุ่มตัวเลข 0 ถึง 4
+
+  if (score >= 80) {
+    // โซนสีเขียว
+    String good_msgs[5] = {
+      "สุดยอดไปเลย! คะแนน " + String(score) + "% นั่งหลังตรงเป๊ะ สุขภาพดีแน่นอนครับ",
+      "ท่าสวยมากครับ (" + String(score) + "%) Keep Look นี้ไว้นะครับ",
+      "เยี่ยมเลย! (" + String(score) + "%) วันนี้ดูแลกระดูกสันหลังได้ดีมากครับ",
+      "Pro Player ชัดๆ! นั่งถูกวิธี " + String(score) + "% ทำงานได้ยาวๆ",
+      "สมดุลร่างกายดีเยี่ยม (" + String(score) + "%) สมองแล่นแน่นอนครับ!"
+    };
+    advice_text = good_msgs[rand_idx];
+
+  } else if (score >= 50) {
+    // โซนสีเหลือง
+    String medium_msgs[5] = {
+      "ทำได้ดีครับ (" + String(score) + "%) แต่เผลอ '" + main_issue + "' บ่อยไปนิด",
+      "เกือบเพอร์เฟกต์แล้ว (" + String(score) + "%) ติดตรงชอบ '" + main_issue + "' นะ",
+      "ภาพรวมโอเคครับ (" + String(score) + "%) แต่เริ่ม '" + main_issue + "' บ้างแล้ว",
+      "คะแนน " + String(score) + "% ถือว่าผ่าน! แต่ลดอาการ '" + main_issue + "' ลงหน่อยนะ",
+      "ช่วงนี้เริ่มหลุดโฟกัสนะ (" + String(score) + "%) อย่า '" + main_issue + "' เพลินล่ะ"
+    };
+    advice_text = medium_msgs[rand_idx];
+
+  } else {
+    // โซนสีแดง
+    String bad_msgs[5] = {
+      "สัญญาณเตือน! คะแนน " + String(score) + "% คุณ '" + main_issue + "' เยอะมาก",
+      "พักด่วน! คุณ '" + main_issue + "' จนเสียบุคลิกหมดแล้ว (" + String(score) + "%)",
+      "อาการน่าเป็นห่วง (" + String(score) + "%) คุณนั่ง '" + main_issue + "' ตลอดเลย",
+      "กระดูกสันหลังร้องไห้แล้ว! (" + String(score) + "%) หยุด '" + main_issue + "' เดี๋ยวนี้!",
+      "ไม่ไหวแล้วครับ! (" + String(score) + "%) คุณ '" + main_issue + "' นานเกินไปแล้ว"
+    };
+    advice_text = bad_msgs[rand_idx];
+  }
+
+  // 6. แสดงผลผ่าน Serial Monitor (คุณสามารถนำค่าเหล่านี้ไปส่ง Bluetooth/WiFi ต่อได้)
+  Serial.println("===== ผลการวิเคราะห์ =====");
+  Serial.println("คะแนน: " + String(score) + "%");
+  Serial.println("ปัญหาหลัก: " + main_issue);
+  Serial.println("คำแนะนำ: " + advice_text);
+  Serial.println("==========================");
+}
